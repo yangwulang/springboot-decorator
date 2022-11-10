@@ -8,6 +8,7 @@ import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.config.DependencyDescriptor;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.core.MethodParameter;
 import org.springframework.util.ClassUtils;
 
 import java.lang.reflect.Field;
@@ -40,11 +41,18 @@ public class DefaultListableBeanFactoryPlus extends DefaultListableBeanFactory {
             Object wrapperBean
     ) throws BeansException {
         Field field = descriptor.getField();
+        MethodParameter methodParameter = descriptor.getMethodParameter();
         Qualifier qualifier;
         WrapperProvider wrapperProvider;
         if (field != null
                 && (qualifier = field.getAnnotation(Qualifier.class)) != null
                 && (wrapperProvider = field.getAnnotation(WrapperProvider.class)) != null
+        ) {
+            Object bean = getBean(qualifier.value());
+            wrapperBean = wrapper(bean, wrapperProvider.value());
+        } else if (methodParameter != null
+                && (qualifier = methodParameter.getParameterAnnotation(Qualifier.class)) != null
+                && (wrapperProvider = methodParameter.getParameterAnnotation(WrapperProvider.class)) != null
         ) {
             Object bean = getBean(qualifier.value());
             wrapperBean = wrapper(bean, wrapperProvider.value());
@@ -60,16 +68,24 @@ public class DefaultListableBeanFactoryPlus extends DefaultListableBeanFactory {
             NoUniqueBeanDefinitionException e
     ) throws BeansException {
         Field field = descriptor.getField();
-        if (field == null) {
+        MethodParameter methodParameter = descriptor.getMethodParameter();
+        WrapperProvider annotation;
+        Class<?> type;
+        if (field != null ) {
+            annotation = field.getAnnotation(WrapperProvider.class);
+            type = field.getType();
+        } else if (methodParameter != null) {
+            annotation = methodParameter.getParameterAnnotation(WrapperProvider.class);
+            type = methodParameter.getParameterType();
+        } else {
             throw e;
         }
         //WrapperProvider[] annotationsByType = field.getAnnotationsByType(WrapperProvider.class);
-        WrapperProvider annotation = field.getAnnotation(WrapperProvider.class);
         if (annotation == null) {
             throw e;
         }
         Class<? extends BeanWrapper>[] value = annotation.value();
-        Map<String, ?> beansOfType = getBeansOfType(field.getType());
+        Map<String, ?> beansOfType = getBeansOfType(type);
 
         // 找出所有被包裹的类实例
         List<WrapperBean> beanWrappers = beansOfType.values()
@@ -78,7 +94,7 @@ public class DefaultListableBeanFactoryPlus extends DefaultListableBeanFactory {
                 .map(implType -> (WrapperBean) implType)
                 .collect(Collectors.toList());
         if (beanWrappers.isEmpty()) {
-            throw new NoUniqueBeanDefinitionException(field.getType(), 0, "找不到实现了 WrapperBean 装饰器的对象");
+            throw new NoUniqueBeanDefinitionException(type, 0, "找不到实现了 WrapperBean 装饰器的对象");
         }
         return wrapper(beanWrappers.get(0), value);
     }
